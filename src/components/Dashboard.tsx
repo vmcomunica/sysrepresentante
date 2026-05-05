@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -9,14 +9,38 @@ import {
   AlertCircle,
   Clock,
   CheckCircle2,
-  Users
+  Users,
+  Database
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   PieChart, Pie, Cell
 } from 'recharts';
+import { supabase } from '../lib/supabase';
 
 export default function Dashboard() {
+  const [dbStatus, setDbStatus] = useState<'testing' | 'connected' | 'error'>('testing');
+  const [dbError, setDbError] = useState<string>('');
+
+  useEffect(() => {
+    async function checkSupabase() {
+      if (!supabase) {
+        setDbStatus('error');
+        setDbError('Variáveis VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não encontradas.');
+        return;
+      }
+      try {
+        const { error } = await supabase.from('empresas').select('id').limit(1);
+        if (error) throw error;
+        setDbStatus('connected');
+      } catch (err: any) {
+        setDbStatus('error');
+        setDbError(err.message || 'Erro desconhecido');
+      }
+    }
+    checkSupabase();
+  }, []);
+
   const kpis = [
     { label: 'Faturamento', value: 'R$ 845.200', change: '+12.5%', isPositive: true, icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Recebimentos', value: 'R$ 412.500', change: '+8.2%', isPositive: true, icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50' },
@@ -63,6 +87,29 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold text-slate-800">Bem-vindo de volta, Admin</h1>
         <p className="text-slate-500 mt-1 text-sm">Aqui está o resumo da sua operação hoje.</p>
       </div>
+
+      {/* Teste de Conexão DB */}
+      {dbStatus === 'testing' && (
+        <div className="bg-slate-100 border border-slate-200 text-slate-700 px-4 py-3 rounded-lg flex items-center gap-3">
+          <Database size={18} className="animate-pulse" />
+          <span className="text-sm font-medium">Testando conexão com Supabase...</span>
+        </div>
+      )}
+      {dbStatus === 'connected' && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg flex items-center gap-3">
+          <Database size={18} />
+          <span className="text-sm font-medium">Supabase conectado com sucesso! Banco de dados online.</span>
+        </div>
+      )}
+      {dbStatus === 'error' && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-3">
+          <AlertCircle size={18} />
+          <div>
+            <p className="text-sm font-medium">Erro ao conectar com Supabase</p>
+            <p className="text-xs mt-0.5">{dbError}</p>
+          </div>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

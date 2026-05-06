@@ -1,59 +1,135 @@
-import React, { useState } from 'react';
-import { Search, Plus, ArrowDownRight, CheckCircle, Clock, ArrowLeft, Save, Trash2, Edit2, X, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Plus, ArrowDownRight, CheckCircle, Clock, ArrowLeft, Save, Trash2, Edit2, X, AlertTriangle, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-const MOCK_PAGAR = [
-  { id: '1', fornecedor: 'Companhia de Energia', vencimento: '2023-11-15', valor: 850.00, status: 'Pago' },
-  { id: '2', fornecedor: 'InfraCloud AWS', vencimento: '2023-11-28', valor: 1200.00, status: 'Pendente' },
-  { id: '3', fornecedor: 'Imobiliária Centro', vencimento: '2023-12-05', valor: 4500.00, status: 'Pendente' },
-];
+interface Pagar {
+  id: string;
+  fornecedor: string;
+  vencimento: string;
+  valor: number;
+  status: string;
+}
 
 export default function ContasPagar() {
+  const [contas, setContas] = useState<Pagar[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [view, setView] = useState<'list' | 'form'>('list');
-  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editingItem, setEditingItem] = useState<Pagar | null>(null);
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchContas();
+  }, []);
+
+  async function fetchContas() {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from('contas_pagar').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      if (data) setContas(data);
+    } catch (err) {
+      console.error('Erro ao buscar contas a pagar:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    
+    const formData = new FormData(e.currentTarget);
+    const contaData = {
+      fornecedor: formData.get('fornecedor') as string,
+      vencimento: formData.get('vencimento') as string,
+      valor: Number(formData.get('valor')),
+      status: formData.get('status') as string,
+    };
+
+    try {
+      if (editingItem) {
+        const { error } = await supabase.from('contas_pagar').update(contaData).eq('id', editingItem.id);
+        if (error) throw error;
+        setContas(contas.map(c => c.id === editingItem.id ? { ...c, ...contaData } : c));
+      } else {
+        const { data, error } = await supabase.from('contas_pagar').insert([contaData]).select();
+        if (error) throw error;
+        if (data && data.length > 0) {
+          setContas([data[0], ...contas]);
+        }
+      }
+      setView('list');
+    } catch (err: any) {
+      console.error('Erro ao salvar conta:', err);
+      alert(err.message || 'Ocorreu um erro ao salvar a conta.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!supabase || !deleteModalId) return;
+    try {
+      const { error } = await supabase.from('contas_pagar').delete().eq('id', deleteModalId);
+      if (error) throw error;
+      setContas(contas.filter(c => c.id !== deleteModalId));
+      setDeleteModalId(null);
+    } catch (err) {
+      console.error('Erro ao excluir conta:', err);
+      alert('Erro ao excluir a conta.');
+    }
+  };
 
   if (view === 'form') {
     return (
       <div className="flex flex-col gap-6 w-full pb-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setView('list')} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500 transition-colors">
-              <ArrowLeft size={18} />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">{editingItem ? 'Editar Conta a Pagar' : 'Nova Conta'}</h1>
-              <p className="text-sm text-slate-500 mt-1">Preencha os dados da conta a pagar.</p>
+        <form onSubmit={handleSave} className="flex flex-col gap-6 w-full">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button type="button" onClick={() => setView('list')} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500 transition-colors">
+                <ArrowLeft size={18} />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-slate-800">{editingItem ? 'Editar Conta a Pagar' : 'Nova Conta'}</h1>
+                <p className="text-sm text-slate-500 mt-1">Preencha os dados da conta a pagar.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setView('list')} className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">Cancelar</button>
+              <button type="submit" disabled={saving} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50">
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                Salvar Conta
+              </button>
             </div>
           </div>
-          <div className="flex gap-3">
-            <button onClick={() => setView('list')} className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">Cancelar</button>
-            <button onClick={() => setView('list')} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm">
-              <Save size={16} /> Salvar Conta
-            </button>
-          </div>
-        </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-           <div className="space-y-2">
-             <label className="text-sm font-medium text-slate-700">Fornecedor / Despesa *</label>
-             <input type="text" defaultValue={editingItem?.fornecedor} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-           </div>
-           <div className="space-y-2">
-             <label className="text-sm font-medium text-slate-700">Vencimento *</label>
-             <input type="date" defaultValue={editingItem?.vencimento} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-           </div>
-           <div className="space-y-2">
-             <label className="text-sm font-medium text-slate-700">Valor (R$) *</label>
-             <input type="number" defaultValue={editingItem?.valor} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-           </div>
-           <div className="space-y-2">
-             <label className="text-sm font-medium text-slate-700">Status</label>
-             <select defaultValue={editingItem?.status || 'Pendente'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="Pendente">Pendente</option>
-                <option value="Pago">Pago</option>
-             </select>
-           </div>
-        </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+             <div className="space-y-2">
+               <label className="text-sm font-medium text-slate-700">Fornecedor / Despesa *</label>
+               <input required name="fornecedor" type="text" defaultValue={editingItem?.fornecedor} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+             </div>
+             <div className="space-y-2">
+               <label className="text-sm font-medium text-slate-700">Vencimento *</label>
+               <input required name="vencimento" type="date" defaultValue={editingItem?.vencimento || new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+             </div>
+             <div className="space-y-2">
+               <label className="text-sm font-medium text-slate-700">Valor (R$) *</label>
+               <input required name="valor" type="number" step="0.01" defaultValue={editingItem?.valor} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+             </div>
+             <div className="space-y-2">
+               <label className="text-sm font-medium text-slate-700">Status</label>
+               <select name="status" defaultValue={editingItem?.status || 'Pendente'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="Pendente">Pendente</option>
+                  <option value="Pago">Pago</option>
+               </select>
+             </div>
+          </div>
+        </form>
       </div>
     );
   }
@@ -78,49 +154,55 @@ export default function ContasPagar() {
             </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-200">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Fornecedor / Despesa</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vencimento</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Valor</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {MOCK_PAGAR.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50 group">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-red-50 flex items-center justify-center text-red-600 shrink-0">
-                        <ArrowDownRight size={16} />
-                      </div>
-                      <p className="font-medium text-slate-900">{item.fornecedor}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600 text-sm">{new Date(item.vencimento).toLocaleDateString('pt-BR')}</td>
-                  <td className="px-6 py-4 font-bold text-slate-800">
-                     {item.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </td>
-                  <td className="px-6 py-4">
-                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-                       item.status === 'Pago' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'
-                     }`}>
-                       {item.status === 'Pago' ? <CheckCircle size={14} /> : <Clock size={14} />}
-                       {item.status}
-                     </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => { setEditingItem(item); setView('form'); }} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16} /></button>
-                        <button onClick={() => setDeleteModalId(item.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16} /></button>
-                    </div>
-                  </td>
+          {loading ? (
+             <div className="p-8 flex justify-center text-slate-400"><Loader2 className="animate-spin" /></div>
+          ) : contas.length === 0 ? (
+             <div className="p-8 text-center text-slate-500">Nenhuma despesa encontrada.</div>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/50 border-b border-slate-200">
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Fornecedor / Despesa</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vencimento</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Valor</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {contas.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50 group">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded bg-red-50 flex items-center justify-center text-red-600 shrink-0">
+                          <ArrowDownRight size={16} />
+                        </div>
+                        <p className="font-medium text-slate-900">{item.fornecedor}</p>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-600 text-sm">{new Date(item.vencimento).toLocaleDateString('pt-BR')}</td>
+                    <td className="px-6 py-4 font-bold text-slate-800">
+                       {Number(item.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </td>
+                    <td className="px-6 py-4">
+                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
+                         item.status === 'Pago' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+                       }`}>
+                         {item.status === 'Pago' ? <CheckCircle size={14} /> : <Clock size={14} />}
+                         {item.status}
+                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => { setEditingItem(item); setView('form'); }} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16} /></button>
+                          <button onClick={() => setDeleteModalId(item.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
@@ -137,7 +219,7 @@ export default function ContasPagar() {
             <p className="text-sm text-slate-600 mb-6">Esta ação removerá a despesa permanentemente.</p>
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
               <button onClick={() => setDeleteModalId(null)} className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">Cancelar</button>
-              <button onClick={() => setDeleteModalId(null)} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">Sim, excluir</button>
+              <button onClick={handleDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">Sim, excluir</button>
             </div>
           </div>
         </div>

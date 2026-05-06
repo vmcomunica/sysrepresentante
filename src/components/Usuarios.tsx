@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Search, Plus, User, Shield, Mail, ArrowLeft, Save, Trash2, Edit2, X, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Plus, User, Shield, Mail, ArrowLeft, Save, Trash2, Edit2, X, AlertTriangle, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface Usuario {
   id: string;
@@ -9,20 +10,38 @@ interface Usuario {
   status: 'Ativo' | 'Inativo';
 }
 
-const MOCK_USUARIOS: Usuario[] = [
-  { id: '1', nome: 'Administrador Silva', email: 'admin@sistema.com.br', perfil: 'admin', status: 'Ativo' },
-  { id: '2', nome: 'Financeiro Oliveira', email: 'financeiro@sistema.com.br', perfil: 'financeiro', status: 'Ativo' },
-  { id: '3', nome: 'Vendedor Marcos', email: 'marcos@vendas.com', perfil: 'vendedor', status: 'Ativo' },
-];
-
 export default function Usuarios() {
-  const [usuarios, setUsuarios] = useState<Usuario[]>(MOCK_USUARIOS);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [editingItem, setEditingItem] = useState<Usuario | null>(null);
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    fetchUsuarios();
+  }, []);
+
+  async function fetchUsuarios() {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from('usuarios').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      if (data) setUsuarios(data);
+    } catch (err) {
+      console.error('Erro ao buscar usuários:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!supabase) return;
+    
     const formData = new FormData(e.currentTarget);
     const pass = formData.get('senha') as string;
     const confirm = formData.get('confirm_senha') as string;
@@ -32,25 +51,46 @@ export default function Usuarios() {
       return;
     }
 
-    const newUsuario: Usuario = {
-      id: editingItem?.id || Math.random().toString(36).substr(2, 9),
+    setSaving(true);
+    const userData = {
       nome: formData.get('nome') as string,
       email: formData.get('email') as string,
       perfil: formData.get('perfil') as string,
-      status: formData.get('status') as 'Ativo' | 'Inativo',
+      status: formData.get('status') as string,
     };
 
-    if (editingItem) {
-      setUsuarios(usuarios.map(u => u.id === editingItem.id ? newUsuario : u));
-    } else {
-      setUsuarios([...usuarios, newUsuario]);
+    try {
+      if (editingItem) {
+        const { error } = await supabase.from('usuarios').update(userData).eq('id', editingItem.id);
+        if (error) throw error;
+        setUsuarios(usuarios.map(u => u.id === editingItem.id ? { ...u, ...userData } as Usuario : u));
+      } else {
+        const { data, error } = await supabase.from('usuarios').insert([userData]).select();
+        if (error) throw error;
+        if (data && data.length > 0) {
+          setUsuarios([data[0], ...usuarios]);
+        }
+      }
+      setView('list');
+    } catch (err: any) {
+      console.error('Erro ao salvar usuário:', err);
+      alert(err.message || 'Ocorreu um erro ao salvar usuário.');
+    } finally {
+      setSaving(false);
     }
-    setView('list');
   };
 
-  const handleDelete = () => {
-    setUsuarios(usuarios.filter(u => u.id !== deleteModalId));
-    setDeleteModalId(null);
+  const handleDelete = async () => {
+    if (!supabase || !deleteModalId) return;
+    try {
+      const { error } = await supabase.from('usuarios').delete().eq('id', deleteModalId);
+      if (error) throw error;
+      setUsuarios(usuarios.filter(u => u.id !== deleteModalId));
+      setDeleteModalId(null);
+    } catch (err) {
+      console.error('Erro ao excluir usuário:', err);
+      alert('Erro ao excluir usuário.');
+    }
   };
 
   if (view === 'form') {
@@ -69,8 +109,9 @@ export default function Usuarios() {
             </div>
             <div className="flex gap-3">
               <button type="button" onClick={() => setView('list')} className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">Cancelar</button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm">
-                <Save size={16} /> Salvar Usuário
+              <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50">
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                Salvar Usuário
               </button>
             </div>
           </div>
@@ -100,13 +141,13 @@ export default function Usuarios() {
                   <option value="admin">Administrador (Total)</option>
                </select>
              </div>
-             <div className="space-y-2">
+             <div className="space-y-2 lg:col-span-1 hidden">
                <label className="text-sm font-medium text-slate-700">Empresa Vinculada</label>
                <select name="empresa" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="1">Minha Empresa Matriz</option>
                </select>
              </div>
-             <div className="space-y-2 md:col-span-2">
+             <div className="space-y-2">
                <label className="text-sm font-medium text-slate-700">Status</label>
                <select name="status" defaultValue={editingItem?.status || 'Ativo'} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="Ativo">Ativo</option>
@@ -139,56 +180,62 @@ export default function Usuarios() {
             </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-200">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Colaborador</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contato</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Perfil (RBAC)</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {usuarios.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50 group">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
-                        <User size={16} />
-                      </div>
-                      <p className="font-medium text-slate-900">{item.nome}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600 text-sm">
-                    <div className="flex items-center gap-2">
-                       <Mail size={14} className="text-slate-400" />
-                       {item.email}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100">
-                       <Shield size={12} />
-                       {item.perfil.toUpperCase()}
-                     </span>
-                  </td>
-                  <td className="px-6 py-4">
-                     <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${
-                       item.status === 'Ativo' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-700 border-slate-200'
-                     }`}>
-                       {item.status}
-                     </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => { setEditingItem(item); setView('form'); }} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16} /></button>
-                        <button onClick={() => setDeleteModalId(item.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16} /></button>
-                    </div>
-                  </td>
+          {loading ? (
+             <div className="p-8 flex justify-center text-slate-400"><Loader2 className="animate-spin" /></div>
+          ) : usuarios.length === 0 ? (
+             <div className="p-8 text-center text-slate-500">Nenhum usuário encontrado.</div>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/50 border-b border-slate-200">
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Colaborador</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contato</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Perfil (RBAC)</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {usuarios.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50 group">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                          <User size={16} />
+                        </div>
+                        <p className="font-medium text-slate-900">{item.nome}</p>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-600 text-sm">
+                      <div className="flex items-center gap-2">
+                         <Mail size={14} className="text-slate-400" />
+                         {item.email}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100">
+                         <Shield size={12} />
+                         {item.perfil.toUpperCase()}
+                       </span>
+                    </td>
+                    <td className="px-6 py-4">
+                       <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${
+                         item.status === 'Ativo' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-700 border-slate-200'
+                       }`}>
+                         {item.status}
+                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => { setEditingItem(item); setView('form'); }} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16} /></button>
+                          <button onClick={() => setDeleteModalId(item.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
       

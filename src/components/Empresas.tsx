@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Search, Plus, ArrowLeft, Save, Trash2, Edit2, X, AlertTriangle, Building, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Plus, ArrowLeft, Save, Trash2, Edit2, X, AlertTriangle, Building, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface Empresa {
   id: string;
@@ -10,21 +11,41 @@ interface Empresa {
   status: 'Ativo' | 'Inativo';
 }
 
-const MOCK_EMPRESAS: Empresa[] = [
-  { id: '1', nome_fantasia: 'Minha Empresa Matriz', cnpj: '12.345.678/0001-90', regime_tributario: 'Simples Nacional', impostos: 6, status: 'Ativo' },
-];
-
 export default function Empresas() {
-  const [empresas, setEmpresas] = useState<Empresa[]>(MOCK_EMPRESAS);
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [editingItem, setEditingItem] = useState<Empresa | null>(null);
   const [deleteModalId, setDeleteModalId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    fetchEmpresas();
+  }, []);
+
+  async function fetchEmpresas() {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from('empresas').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      if (data) setEmpresas(data);
+    } catch (err) {
+      console.error('Erro ao buscar empresas:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!supabase) return;
+    setSaving(true);
+    
     const formData = new FormData(e.currentTarget);
-    const newEmpresa: Empresa = {
-      id: editingItem?.id || Math.random().toString(36).substr(2, 9),
+    const empresaData = {
       nome_fantasia: formData.get('nome_fantasia') as string,
       cnpj: formData.get('cnpj') as string,
       regime_tributario: formData.get('regime_tributario') as string,
@@ -32,17 +53,38 @@ export default function Empresas() {
       status: formData.get('status') as 'Ativo' | 'Inativo',
     };
 
-    if (editingItem) {
-      setEmpresas(empresas.map(emp => emp.id === editingItem.id ? newEmpresa : emp));
-    } else {
-      setEmpresas([...empresas, newEmpresa]);
+    try {
+      if (editingItem) {
+        const { error } = await supabase.from('empresas').update(empresaData).eq('id', editingItem.id);
+        if (error) throw error;
+        setEmpresas(empresas.map(emp => emp.id === editingItem.id ? { ...emp, ...empresaData } as Empresa : emp));
+      } else {
+        const { data, error } = await supabase.from('empresas').insert([empresaData]).select();
+        if (error) throw error;
+        if (data && data.length > 0) {
+          setEmpresas([data[0], ...empresas]);
+        }
+      }
+      setView('list');
+    } catch (err: any) {
+      console.error('Erro ao salvar empresa:', err);
+      alert(err.message || 'Ocorreu um erro ao salvar a empresa.');
+    } finally {
+      setSaving(false);
     }
-    setView('list');
   };
 
-  const handleDelete = () => {
-    setEmpresas(empresas.filter(emp => emp.id !== deleteModalId));
-    setDeleteModalId(null);
+  const handleDelete = async () => {
+    if (!supabase || !deleteModalId) return;
+    try {
+      const { error } = await supabase.from('empresas').delete().eq('id', deleteModalId);
+      if (error) throw error;
+      setEmpresas(empresas.filter(emp => emp.id !== deleteModalId));
+      setDeleteModalId(null);
+    } catch (err) {
+      console.error('Erro ao excluir empresa:', err);
+      alert('Erro ao excluir a empresa. Pode estar vinculada a outros registros.');
+    }
   };
 
   if (view === 'form') {
@@ -61,8 +103,8 @@ export default function Empresas() {
             </div>
             <div className="flex gap-3">
               <button type="button" onClick={() => setView('list')} className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">Cancelar</button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm">
-                <Save size={16} /> Salvar Empresa
+              <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50">
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Salvar Empresa
               </button>
             </div>
           </div>
@@ -130,51 +172,57 @@ export default function Empresas() {
             </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-200">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Empresa</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">CNPJ</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Tributação (Impostos)</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {empresas.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50 group">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                        <Building size={16} />
-                      </div>
-                      <p className="font-medium text-slate-900">{item.nome_fantasia}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600 text-sm font-mono">{item.cnpj}</td>
-                  <td className="px-6 py-4">
-                     <div className="flex flex-col">
-                        <span className="text-sm text-slate-700 font-medium">{item.regime_tributario}</span>
-                        <span className="text-xs text-slate-500">{item.impostos}% de impostos no faturamento</span>
-                     </div>
-                  </td>
-                  <td className="px-6 py-4">
-                     <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${
-                       item.status === 'Ativo' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-700 border-slate-200'
-                     }`}>
-                       {item.status}
-                     </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => { setEditingItem(item); setView('form'); }} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16} /></button>
-                        <button onClick={() => setDeleteModalId(item.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16} /></button>
-                    </div>
-                  </td>
+          {loading ? (
+             <div className="p-8 flex justify-center text-slate-400"><Loader2 className="animate-spin" /></div>
+          ) : empresas.length === 0 ? (
+             <div className="p-8 text-center text-slate-500">Nenhuma empresa encontrada.</div>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/50 border-b border-slate-200">
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Empresa</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">CNPJ</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Tributação (Impostos)</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {empresas.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50 group">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
+                          <Building size={16} />
+                        </div>
+                        <p className="font-medium text-slate-900">{item.nome_fantasia}</p>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-600 text-sm font-mono">{item.cnpj}</td>
+                    <td className="px-6 py-4">
+                       <div className="flex flex-col">
+                          <span className="text-sm text-slate-700 font-medium">{item.regime_tributario}</span>
+                          <span className="text-xs text-slate-500">{item.impostos}% de impostos no faturamento</span>
+                       </div>
+                    </td>
+                    <td className="px-6 py-4">
+                       <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${
+                         item.status === 'Ativo' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-700 border-slate-200'
+                       }`}>
+                         {item.status}
+                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => { setEditingItem(item); setView('form'); }} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Editar"><Edit2 size={16} /></button>
+                          <button onClick={() => setDeleteModalId(item.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir"><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
